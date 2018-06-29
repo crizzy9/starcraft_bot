@@ -10,6 +10,8 @@ class StarBot(sc2.BotAI):
         await self.build_pylons()
         await self.build_assimilators()
         await self.expand()
+        await self.offensive_force_buildings()
+        await self.build_offensive_force()
 
     async def build_workers(self):
         for nexus in self.units(uti.NEXUS).ready.noqueue:
@@ -38,6 +40,24 @@ class StarBot(sc2.BotAI):
     async def expand(self):
         if self.units(uti.NEXUS).amount < 3 and self.can_afford(uti.NEXUS):
             await self.expand_now()
+
+    # how will this work out with all sites or all nexuses or are they individual to each site?
+    async def offensive_force_buildings(self):
+        if self.units(uti.PYLON).ready.exists:
+            pylon = self.units(uti.PYLON).ready.random
+            if self.units(uti.GATEWAY).ready.exists:
+                # checks if already a cyberneticscore exists  should check if near a nexus
+                if not self.units(uti.CYBERNETICSCORE):
+                    if self.can_afford(uti.CYBERNETICSCORE) and not self.already_pending(uti.CYBERNETICSCORE):
+                        await self.build(uti.CYBERNETICSCORE, near=pylon)
+            else:
+                if self.can_afford(uti.GATEWAY) and not self.already_pending(uti.GATEWAY):
+                    await self.build(uti.GATEWAY, near=pylon)
+
+    async def build_offensive_force(self):
+        for gw in self.units(uti.GATEWAY).ready.noqueue:
+            if self.can_afford(uti.STALKER) and self.supply_left > 0:
+                await self.do(gw.train(uti.STALKER))
 
 
 run_game(maps.get("AcidPlantLE"), [Bot(Race.Protoss, StarBot()), Computer(Race.Terran, Difficulty.Easy)], realtime=False)
