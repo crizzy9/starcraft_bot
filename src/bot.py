@@ -1,3 +1,4 @@
+import random
 import sc2
 from sc2 import run_game, maps, Race, Difficulty
 from sc2.player import Bot, Computer
@@ -12,6 +13,7 @@ class StarBot(sc2.BotAI):
         await self.expand()
         await self.offensive_force_buildings()
         await self.build_offensive_force()
+        await self.attack()
 
     async def build_workers(self):
         for nexus in self.units(uti.NEXUS).ready.noqueue:
@@ -45,12 +47,11 @@ class StarBot(sc2.BotAI):
     async def offensive_force_buildings(self):
         if self.units(uti.PYLON).ready.exists:
             pylon = self.units(uti.PYLON).ready.random
-            if self.units(uti.GATEWAY).ready.exists:
+            if self.units(uti.GATEWAY).ready.exists and not self.units(uti.CYBERNETICSCORE):
                 # checks if already a cyberneticscore exists  should check if near a nexus
-                if not self.units(uti.CYBERNETICSCORE):
-                    if self.can_afford(uti.CYBERNETICSCORE) and not self.already_pending(uti.CYBERNETICSCORE):
-                        await self.build(uti.CYBERNETICSCORE, near=pylon)
-            else:
+                if self.can_afford(uti.CYBERNETICSCORE) and not self.already_pending(uti.CYBERNETICSCORE):
+                    await self.build(uti.CYBERNETICSCORE, near=pylon)
+            elif len(self.units(uti.GATEWAY)) < 3:
                 if self.can_afford(uti.GATEWAY) and not self.already_pending(uti.GATEWAY):
                     await self.build(uti.GATEWAY, near=pylon)
 
@@ -59,5 +60,21 @@ class StarBot(sc2.BotAI):
             if self.can_afford(uti.STALKER) and self.supply_left > 0:
                 await self.do(gw.train(uti.STALKER))
 
+    def find_target(self, state):
+        if len(self.known_enemy_units) > 0:
+            return random.choice(self.known_enemy_units)
+        elif len(self.known_enemy_units) > 0:
+            return random.choice(self.known_enemy_structures)
+        else:
+            return self.enemy_start_locations[0]
 
-run_game(maps.get("AcidPlantLE"), [Bot(Race.Protoss, StarBot()), Computer(Race.Terran, Difficulty.Easy)], realtime=False)
+    async def attack(self):
+        if self.units(uti.STALKER).amount > 15:
+            for s in self.units(uti.STALKER).idle:
+                await self.do(s.attack(self.find_target(self.state)))
+        elif self.units(uti.STALKER).amount > 3 and len(self.known_enemy_units) > 0:
+            for s in self.units(uti.STALKER).idle:
+                await self.do(s.attack(random.choice(self.known_enemy_units)))
+
+
+run_game(maps.get("AcidPlantLE"), [Bot(Race.Protoss, StarBot()), Computer(Race.Terran, Difficulty.Hard)], realtime=False)
