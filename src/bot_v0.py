@@ -3,18 +3,15 @@ import sc2
 from sc2 import run_game, maps, Race, Difficulty
 from sc2.player import Bot, Computer
 from sc2.constants import UnitTypeId as uti
-import cv2
-import numpy as np
+from examples.protoss.cannon_rush import CannonRushBot
 
-
-class StarBot(sc2.BotAI):
+class StarBotV0(sc2.BotAI):
 
     ITERATIONS_PER_MINUTE = 165
     MAX_WORKERS = 65
 
     async def on_step(self, iteration):
         self.iteration = iteration
-        await self.extract_and_visualize()
         await self.distribute_workers()
         await self.build_workers()
         await self.build_pylons()
@@ -23,20 +20,6 @@ class StarBot(sc2.BotAI):
         await self.offensive_force_buildings()
         await self.build_offensive_force()
         await self.attack()
-
-    async def extract_and_visualize(self):
-        # to figure out the methods inside
-        print(dir(self))
-        print(self.game_info)
-        game_data = np.zeros((self.game_info.map_size[1], self.game_info.map_size[0], 3), np.uint8)
-        for nexus in self.units(uti.NEXUS):
-            next_pos = nexus.position
-            cv2.circle(game_data, (int(next_pos[0]), int(next_pos[1])), 10, (0, 255, 0), -1)
-
-        flipped = cv2.flip(game_data, 0)
-        resized = cv2.resize(flipped, dsize=None, fx=2, fy=2)
-        cv2.imshow('Vision', resized)
-        cv2.waitKey(1)
 
     async def build_workers(self):
         if self.units(uti.NEXUS).amount*16 > self.units(uti.PROBE).amount:
@@ -68,23 +51,30 @@ class StarBot(sc2.BotAI):
         if self.units(uti.NEXUS).amount < 3 and self.can_afford(uti.NEXUS):
             await self.expand_now()
 
+    # how will this work out with all sites or all nexuses or are they individual to each site? (thats why its only creating one)
     async def offensive_force_buildings(self):
         if self.units(uti.PYLON).ready.exists:
             pylon = self.units(uti.PYLON).ready.random
             if self.units(uti.GATEWAY).ready.exists and not self.units(uti.CYBERNETICSCORE):
+                # checks if already a cyberneticscore exists should check if near a nexus(should check and build near each nexus and pylon)
                 if self.can_afford(uti.CYBERNETICSCORE) and not self.already_pending(uti.CYBERNETICSCORE):
                     await self.build(uti.CYBERNETICSCORE, near=pylon)
 
-            elif self.units(uti.GATEWAY).amount < 1:
+            elif self.units(uti.GATEWAY).amount < (self.iteration / self.ITERATIONS_PER_MINUTE / 2):
                 if self.can_afford(uti.GATEWAY) and not self.already_pending(uti.GATEWAY):
                     await self.build(uti.GATEWAY, near=pylon)
 
             if self.units(uti.CYBERNETICSCORE).ready.exists:
-                if self.units(uti.STARGATE).amount < (self.iteration / self.ITERATIONS_PER_MINUTE):
+                if self.units(uti.STARGATE).amount < (self.iteration / self.ITERATIONS_PER_MINUTE / 2):
                     if self.can_afford(uti.STARGATE) and not self.already_pending(uti.STARGATE):
                         await self.build(uti.STARGATE, near=pylon)
 
     async def build_offensive_force(self):
+        for gw in self.units(uti.GATEWAY).ready.noqueue:
+            if not self.units(uti.STALKER).amount > self.units(uti.VOIDRAY).amount:
+                if self.can_afford(uti.STALKER) and self.supply_left > 0:
+                    await self.do(gw.train(uti.STALKER))
+
         for sg in self.units(uti.STARGATE).ready.noqueue:
             if self.can_afford(uti.VOIDRAY) and self.supply_left > 0:
                 await self.do(sg.train(uti.VOIDRAY))
@@ -100,6 +90,7 @@ class StarBot(sc2.BotAI):
     async def attack(self):
         # {UNIT: [n to fight, n to defend]}
         aggressive_units = {
+            uti.STALKER: [15, 3],
             uti.VOIDRAY: [8, 3]
         }
 
@@ -116,6 +107,6 @@ class StarBot(sc2.BotAI):
 if __name__ == '__main__':
     run_game(
         maps.get("AcidPlantLE"),
-        [Bot(Race.Protoss, StarBot()), Computer(Race.Terran, Difficulty.Hard)],
+        [Bot(Race.Protoss, StarBotV0()), Bot(Race.Protoss, CannonRushBot())],
         realtime=False
     )
