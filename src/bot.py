@@ -3,6 +3,7 @@ import sc2
 from sc2 import run_game, maps, Race, Difficulty
 from sc2.player import Bot, Computer
 from sc2.constants import UnitTypeId as uti
+from examples.protoss.cannon_rush import CannonRushBot
 
 class StarBot(sc2.BotAI):
 
@@ -103,4 +104,8 @@ class StarBot(sc2.BotAI):
                         await self.do(s.attack(random.choice(self.known_enemy_units)))
 
 
-run_game(maps.get("AcidPlantLE"), [Bot(Race.Protoss, StarBot()), Computer(Race.Terran, Difficulty.Hard)], realtime=False)
+run_game(
+    maps.get("AcidPlantLE"),
+    [Bot(Race.Protoss, StarBot()), Bot(Race.Protoss, CannonRushBot())],
+    realtime=False
+)
