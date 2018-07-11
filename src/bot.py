@@ -1,19 +1,47 @@
 import random
+import time
+import os
 import sc2
-from sc2 import run_game, maps, Race, Difficulty, position
+from sc2 import run_game, maps, Race, Difficulty, position, Result
 from sc2.player import Bot, Computer
 from sc2.constants import UnitTypeId as uti
 import cv2
 import numpy as np
 
+# os.environ['SC2PATH'] = '/Applications/StarCraft\ II/'
+
+HEADLESS = False
 
 class StarBot(sc2.BotAI):
 
-    ITERATIONS_PER_MINUTE = 165
-    MAX_WORKERS = 65
+
+    def __init__(self):
+        self.ITERATIONS_PER_MINUTE = 165
+        self.MAX_WORKERS = 65
+        self.do_something_after = 0
+        self.train_data = []
+        self.start_time = 0
+
+    # changed the source code in main.py and bot_ai.py in sc2 to call on_end after game ends
+    # files inside venv
+    def on_end(self, game_result):
+        print('--- on_end called ---')
+        print(game_result)
+
+        if game_result == Result.Victory:
+            print('Saving data!')
+            np.save("./../train_data/{}.npy".format(str(int(time.time()))), np.array(self.train_data))
 
     async def on_step(self, iteration):
         self.iteration = iteration
+        print('iteration', self.iteration)
+        print('game loop', self.state.game_loop)
+        print('game time', self.state.game_loop * 0.725 * (1/16))
+        if self.state.game_loop == 0:
+            self.start_time = time.time()
+
+        print('seconds', time.time() - self.start_time)
+
         await self.scout()
         await self.distribute_workers()
         await self.build_workers()
@@ -29,8 +57,8 @@ class StarBot(sc2.BotAI):
         x = enemy_start_location[0]
         y = enemy_start_location[1]
 
-        x += ((random.randrange(-20, 20)) / 100) * enemy_start_location[0]
-        y += ((random.randrange(-20, 20)) / 100) * enemy_start_location[1]
+        x += ((random.randrange(-30, 30)) / 100) * enemy_start_location[0]
+        y += ((random.randrange(-30, 30)) / 100) * enemy_start_location[1]
 
         if x < 0:
             x = 0
@@ -107,11 +135,32 @@ class StarBot(sc2.BotAI):
             pos = obs.position
             cv2.circle(game_data, (int(pos[0]), int(pos[1])), 1, (255, 255, 255), -1)
 
+        line_max = 50
+        barlength = lambda r: int(line_max*(1 if r > 1.0 else r))
+
+        mineral_ratio = self.minerals / 1500
+        vespene_ratio = self.vespene / 1500
+        population_ratio = self.supply_left / self.supply_cap
+        plausible_supply = self.supply_cap / 200.0
+        military_weight = len(self.units(uti.VOIDRAY)) / self.supply_used
+
+        ratios = {
+            'fighters/supply_used': [(0, 19), (barlength(military_weight), 19), (250, 250, 200), 3],
+            'total_supply/200': [(0, 15), (barlength(plausible_supply), 15), (220, 200, 200), 3],
+            'supply_left/total_supply': [(0, 11), (barlength(population_ratio), 11), (150, 150, 150), 3],
+            'gas/1500': [(0, 7), (barlength(vespene_ratio), 7), (210, 200, 0), 3],
+            'minerals/1500': [(0, 3), (barlength(mineral_ratio), 3), (0, 255, 25), 3]
+        }
+
+        for r in ratios.values():
+            cv2.line(game_data, r[0], r[1], r[2], r[3])
+
         # flip horizontally to make our final fix in visual representation
-        flipped = cv2.flip(game_data, 0)
-        resized = cv2.resize(flipped, dsize=None, fx=2, fy=2)
-        cv2.imshow('Vision', resized)
-        cv2.waitKey(1)
+        self.flipped = cv2.flip(game_data, 0)
+        if not HEADLESS:
+            resized = cv2.resize(self.flipped, dsize=None, fx=2, fy=2)
+            cv2.imshow('Vision', resized)
+            cv2.waitKey(1)
 
     async def build_workers(self):
         if self.units(uti.NEXUS).amount*16 > self.units(uti.PROBE).amount:
@@ -176,24 +225,52 @@ class StarBot(sc2.BotAI):
             return self.enemy_start_locations[0]
 
     async def attack(self):
-        # {UNIT: [n to fight, n to defend]}
-        aggressive_units = {
-            uti.VOIDRAY: [8, 3]
-        }
+        if len(self.units(uti.VOIDRAY).idle) > 0:
+            choice = random.randrange(0,4)
+            # 1. no attack
+            # 2. attack_unit_closest_nexus
+            # 3. attack_enemy_structures
+            # 5. attack_enemy_start
 
-        for unit, count in aggressive_units.items():
-            if self.units(unit).amount > count[0]:
-                for s in self.units(unit).idle:
-                    await self.do(s.attack(self.find_target(self.state)))
-            elif self.units(unit).amount > count[1]:
-                if len(self.known_enemy_units) > 0:
-                    for s in self.units(unit).idle:
-                        await self.do(s.attack(random.choice(self.known_enemy_units)))
+            # other options it could have?
+
+            # attack with random unit or in groups?
+
+            # other things like enemy units closest to our units
+            # later make choices on a per unit bases? (color them white?)
+
+            target = False
+            if self.iteration > self.do_something_after:
+                if choice == 0:
+                    # no attack
+                    wait = random.randrange(20, self.ITERATIONS_PER_MINUTE)
+                    self.do_something_after = self.iteration + wait
+                elif choice == 1:
+                    # attack_unit_closest_nexus
+                    if len(self.known_enemy_units) > 0:
+                        target = self.known_enemy_units.closest_to(random.choice(self.units(uti.NEXUS)))
+                elif choice == 2:
+                    # attack_enemy_structures
+                    if len(self.known_enemy_structures) > 0:
+                        target = random.choice(self.known_enemy_structures)
+                elif choice == 3:
+                    # attack_enemy_start
+                    target = self.enemy_start_locations[0]
+
+                if target:
+                    for vr in self.units(uti.VOIDRAY).idle:
+                        await self.do(vr.attack(target))
+
+                y = np.zeros(4)
+                y[choice] = 1
+                print(y)
+                self.train_data.append([y, self.flipped])
+            print(len(self.train_data))
 
 
 if __name__ == '__main__':
     run_game(
         maps.get("AcidPlantLE"),
-        [Bot(Race.Protoss, StarBot()), Computer(Race.Terran, Difficulty.Hard)],
+        [Bot(Race.Protoss, StarBot()), Computer(Race.Terran, Difficulty.Medium)],
         realtime=False
     )
